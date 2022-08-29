@@ -14,12 +14,12 @@ dp = Dispatcher(bot, storage=storage)
 reddit_read_only = asyncpraw.Reddit(client_id="Y-VGlkKs7syagzy9ZhKclA",
                                     client_secret="INQr18dEf5mqN8d995JY6Df4ZoZE_w",
                                     user_agent="TelegramScrappyBot")
+amount_submissions_returned = 5
+subreddit_global = None
 
 
 # стартовая функция, задает начальные значения
-async def bot_start():
-    global amount_submissions_returned
-    amount_submissions_returned = 5
+async def bot_start(self):
     global subreddit_global
     subreddit_global = await reddit_read_only.subreddit("Python")
 
@@ -28,12 +28,11 @@ async def bot_start():
 async def welcome(message: types.Message):
     await message.reply(''' Hello, this is RedditScraperBot, /r/Python is loaded by default,
 to choose a different one use /change. 
-To change the returned submission amount use /change''')
+To change the returned submission amount use /amount''')
 
 
 class SubredditStates(StatesGroup):
-    # state сабреддита
-    subreddit = State()
+    state = State()
     # state количества постов, которые будут показаны
     amount_to_return = State()
 
@@ -51,12 +50,12 @@ async def cancel_handler(message: types.Message, state: FSMContext):
 # смена сабреддита, выбор имени
 @dp.message_handler(commands=['change'], state=None)
 async def changesubreddit(message: types.Message):
-    await SubredditStates.subreddit.set()
+    await SubredditStates.state.set()
     await message.reply('Enter subreddit name')
 
 
 # сама смена сабреддита, обновление глобальной переменной
-@dp.message_handler(state=SubredditStates.subreddit)
+@dp.message_handler(state=SubredditStates.state)
 async def load_subreddit_name(message: types.Message, state: FSMContext):
     subreddit_name = message.text
     subreddit = await parse_subreddit(subreddit_name, message)
@@ -100,7 +99,7 @@ async def load_amount_to_return(message: types.Message, state: FSMContext):
     elif int(message.text) > 1000:
         amount_submissions_returned = 1000
     else:
-         amount_submissions_returned = message.text
+        amount_submissions_returned = message.text
     await state.finish()
 
 
@@ -141,11 +140,17 @@ async def return_rising_posts(message: types.Message):
         await message.reply(output)
 
 
+# чистим хранилище
+async def shutdown(dispatcher: Dispatcher):
+    await dispatcher.storage.close()
+    await dispatcher.storage.wait_closed()
+
+
 # оставил для понимания и дань уважения первой написанной функции на питоне
 @dp.message_handler()
 async def echo(message: types.Message):
     await message.answer(message.text)
 
 
-executor.start(dp, bot_start())
-executor.start_polling(dp, skip_updates=True)
+# executor.start(dp, bot_start())
+executor.start_polling(dp, skip_updates=True, on_startup=bot_start, on_shutdown=shutdown)
