@@ -10,27 +10,28 @@ from aiogram.dispatcher.filters.state import StatesGroup, State
 bot = Bot(token='5517810574:AAGX6ubUUITT_3JqyDcyaFtR-F8yG9r48Xo')
 storage = MemoryStorage()
 dp = Dispatcher(bot, storage=storage)
-reddit_read_only = asyncpraw.Reddit(client_id="Y-VGlkKs7syagzy9ZhKclA",  # your client id
-                                    client_secret="INQr18dEf5mqN8d995JY6Df4ZoZE_w",  # your client secret
+# создаем объект хранящий образ реддита с использованием реддит API
+reddit_read_only = asyncpraw.Reddit(client_id="Y-VGlkKs7syagzy9ZhKclA",
+                                    client_secret="INQr18dEf5mqN8d995JY6Df4ZoZE_w",
                                     user_agent="TelegramScrappyBot")
 
 
 # стартовая функция, задает начальные значения
 async def bot_start():
-    global amount
-    amount = 5
-    global sr_global
-    sr_global = await reddit_read_only.subreddit("Python")
+    global amount_submissions_returned
+    amount_submissions_returned = 5
+    global subreddit_global
+    subreddit_global = await reddit_read_only.subreddit("Python")
 
 
 @dp.message_handler(commands=['start', 'help'])
 async def welcome(message: types.Message):
-    await message.reply("Hello, this is RedditScraperBot" + ", /r/Python is loaded by default, to choose a different "
-                                                            "one use /change. \n To change the returned submission "
-                                                            "amount use /change")
+    await message.reply(''' Hello, this is RedditScraperBot, /r/Python is loaded by default,
+to choose a different one use /change. 
+To change the returned submission amount use /change''')
 
 
-class Subreddit(StatesGroup):
+class SubredditStates(StatesGroup):
     # state сабреддита
     subreddit = State()
     # state количества постов, которые будут показаны
@@ -50,22 +51,21 @@ async def cancel_handler(message: types.Message, state: FSMContext):
 # смена сабреддита, выбор имени
 @dp.message_handler(commands=['change'], state=None)
 async def changesubreddit(message: types.Message):
-    await Subreddit.subreddit.set()
+    await SubredditStates.subreddit.set()
     await message.reply('Enter subreddit name')
 
 
 # сама смена сабреддита, обновление глобальной переменной
-@dp.message_handler(state=Subreddit.subreddit)
+@dp.message_handler(state=SubredditStates.subreddit)
 async def load_subreddit_name(message: types.Message, state: FSMContext):
     subreddit_name = message.text
     subreddit = await parse_subreddit(subreddit_name, message)
-    if subreddit is not None:
-        await message.reply('Changed to ' + subreddit_name + ' successfully',
-                            reply_markup=post_sorting_kb.sorting_type_kb)
-    else:
+    if subreddit is None:
         return
-    global sr_global
-    sr_global = subreddit
+    await message.reply('Changed to ' + subreddit_name + ' successfully',
+                        reply_markup=post_sorting_kb.sorting_type_kb)
+    global subreddit_global
+    subreddit_global = subreddit
     await state.finish()
 
 
@@ -83,24 +83,24 @@ async def parse_subreddit(subreddit_name, message: types.Message):
 # смена количества отобржаемых постов
 @dp.message_handler(commands=['amount'], state=None)
 async def change_amount_to_return(message: types.Message):
-    await Subreddit.amount_to_return.set()
+    await SubredditStates.amount_to_return.set()
     await message.reply('Enter amount of submissions to return')
 
 
 # обработка смены количества, идет проверка на число не число, если меньше 1, тогда остается то же число, свыше 1000
 # ставится обратно 1000
-@dp.message_handler(state=Subreddit.amount_to_return)
+@dp.message_handler(state=SubredditStates.amount_to_return)
 async def load_amount_to_return(message: types.Message, state: FSMContext):
-    global amount
-    if message.text.isdigit() or (message.text.startswith("-") and str(message.text[1:]).isdigit()):
-        if message.text.startswith("-") and (int(message.text[1:]) * -1 <= 0):
-            amount = 5
-        elif int(message.text) > 1000:
-            amount = 1000
-        else:
-            amount = message.text
-    else:
+    global amount_submissions_returned
+    if not (message.text.isdigit() or (message.text.startswith("-") and str(message.text[1:]).isdigit())):
         await message.reply("This is not even a number, please enter a valid number")
+        return
+    if message.text.startswith("-") and (int(message.text[1:]) * -1 <= 0):
+        amount_submissions_returned = 5
+    elif int(message.text) > 1000:
+        amount_submissions_returned = 1000
+    else:
+         amount_submissions_returned = message.text
     await state.finish()
 
 
@@ -108,8 +108,8 @@ async def load_amount_to_return(message: types.Message, state: FSMContext):
 @dp.message_handler(commands='hot')
 @dp.message_handler(Text(equals='hot', ignore_case=True))
 async def return_hot_posts(message: types.Message):
-    subreddit = sr_global
-    async for submission in subreddit.hot(limit=amount):
+    subreddit = subreddit_global
+    async for submission in subreddit.hot(limit=amount_submissions_returned):
         output = submission.title + "\n" + submission.selftext
         await message.reply(output)
 
@@ -117,8 +117,8 @@ async def return_hot_posts(message: types.Message):
 @dp.message_handler(commands='top')
 @dp.message_handler(Text(equals='top', ignore_case=True))
 async def return_top_posts(message: types.Message):
-    subreddit = sr_global
-    async for submission in subreddit.top(limit=amount):
+    subreddit = subreddit_global
+    async for submission in subreddit.top(limit=amount_submissions_returned):
         output = submission.title + "\n" + submission.selftext
         await message.reply(output)
 
@@ -126,8 +126,8 @@ async def return_top_posts(message: types.Message):
 @dp.message_handler(commands='new')
 @dp.message_handler(Text(equals='new', ignore_case=True))
 async def return_new_posts(message: types.Message):
-    subreddit = sr_global
-    async for submission in subreddit.new(limit=amount):
+    subreddit = subreddit_global
+    async for submission in subreddit.new(limit=amount_submissions_returned):
         output = submission.title + "\n" + submission.selftext
         await message.reply(output)
 
@@ -135,13 +135,13 @@ async def return_new_posts(message: types.Message):
 @dp.message_handler(commands='rising')
 @dp.message_handler(Text(equals='rising', ignore_case=True))
 async def return_rising_posts(message: types.Message):
-    subreddit = sr_global
-    async for submission in subreddit.rising(limit=amount):
+    subreddit = subreddit_global
+    async for submission in subreddit.rising(limit=amount_submissions_returned):
         output = submission.title + "\n" + submission.selftext
         await message.reply(output)
 
 
-# оставил для понимания и дань уважения первой написанной функции на питоне)
+# оставил для понимания и дань уважения первой написанной функции на питоне
 @dp.message_handler()
 async def echo(message: types.Message):
     await message.answer(message.text)
